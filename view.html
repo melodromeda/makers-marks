@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Sound Skin</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block}
+  #back{position:fixed;left:16px;top:14px;color:#bbb;font:14px system-ui,sans-serif;text-decoration:none;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);z-index:2}
+  #msg{position:fixed;left:0;right:0;bottom:18px;text-align:center;color:#999;font:13px/1.4 system-ui,sans-serif;pointer-events:none;transition:opacity .6s}
+</style>
+<script type="importmap">
+{"imports":{"three":"./lib/three.module.min.js"}}
+</script>
+</head>
+<body>
+<a id="back" href="./" style="display:none">&larr; all paintings</a>
+<div id="msg">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from './lib/OrbitControls.js';
+
+// ---------- settings: override in the URL, e.g. skin.html?look=glow&lines=4 ----------
+const q = new URLSearchParams(location.search);
+const num = (k, d) => q.has(k) ? parseFloat(q.get(k)) : d;
+const S = {
+  file: q.has('p') ? `paintings/${q.get('p')}/skin` : (q.get('file') || 'skin'), // loads skin.json + skin.bin
+  kiosk: q.has('kiosk'),          // big-screen mode: no hints, endless slow turn
+  look: q.get('look') || 'solid', // solid (lit surface) | glow (translucent, additive)
+  opacity: num('opacity', 0.35),  // glow look only
+  lines: num('lines', 0),         // draw every Nth frame's outline on top (0 = off)
+  depth: q.get('depth') || 'auto',// stretch time along z: 'auto', 0, or a number (x the sculpture size)
+  every: num('every', 1),         // keep every Nth frame
+  breakAt: num('break', 0.25),    // don't join frames if a circle jumps more than this (x size)
+  grow: num('grow', 5),           // seconds for the draw-in animation (0 = off)
+  bg: q.get('bg') || '#000000'
+};
+const msg = document.getElementById('msg');
+
+// ---------- load ----------
+let H, pos, col;
+try {
+  H = await (await fetch(S.file + '.json', { cache: 'no-cache' })).json();
+  const buf = await (await fetch(S.file + '.bin', { cache: 'no-cache' })).arrayBuffer();
+  const n = H.frames * H.circles * H.points * 3;
+  pos = new Float32Array(buf, 0, n);
+  col = new Float32Array(buf, n * 4, H.frames * H.circles * 3);
+} catch { ({ H, pos, col } = demo()); msg.textContent = 'demo mode: no skin.json / skin.bin found'; }
+
+function demo() {
+  // 3 circles drifting in 2D, outlines wobbling like they're being pushed by audio
+  const F = 360, C = 3, P = 96, pos = new Float32Array(F * C * P * 3), col = new Float32Array(F * C * 3);
+  for (let f = 0; f < F; f++) {
+    const t = f / 60, amp = 0.5 + 0.5 * Math.abs(Math.sin(t * 2.1) * Math.sin(t * 5.3));
+    for (let c = 0; c < C; c++) {
+      const cx = Math.sin(t * 0.6 + c * 2) * 1.5, cy = Math.cos(t * 0.8 + c) * 0.9, r = 0.5 + 0.2 * Math.sin(t + c);
+      for (let p = 0; p < P; p++) {
+        const a = p / P * Math.PI * 2;
+        const rr = r * (1 + 0.25 * amp * Math.sin(a * (3 + c) + t * 4) + 0.08 * amp * Math.sin(a * 13 - t * 9));
+        const i = ((f * C + c) * P + p) * 3;
+        pos[i] = cx + rr * Math.cos(a); pos[i + 1] = cy + rr * Math.sin(a); pos[i + 2] = 0;
+      }
+      const j = (f * C + c) * 3, h = (c / C + f / F * 0.3) % 1;
+      const k = new THREE.Color().setHSL(h, 0.8, 0.6); col[j] = k.r; col[j + 1] = k.g; col[j + 2] = k.b;
+    }
+  }
+  return { H: { frames: F, circles: C, points: P }, pos, col };
+}
+
+const { circles: C, points: P } = H;
+const frameIdx = []; for (let f = 0; f < H.frames; f += S.every) frameIdx.push(f);
+const F = frameIdx.length;
+const at = (f, c, p) => ((f * C + c) * P + p) * 3;
+
+// overall size, to scale thresholds and the time stretch
+const box = new THREE.Box3();
+for (let i = 0; i < pos.length; i += 3) box.expandByPoint(new THREE.Vector3(pos[i], pos[i + 1], pos[i + 2]));
+const size = box.getSize(new THREE.Vector3());
+const span = Math.max(size.x, size.y, size.z) || 1;
+let depth = S.depth === 'auto' ? (size.z < span * 0.05 ? span * 1.2 : 0) : parseFloat(S.depth) * span;
+
+// ---------- build one skin per circle ----------
+const group = new THREE.Group();
+const skins = [];
+const material = S.look === 'glow'
+  ? new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: S.opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  : new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.1 });
+
+for (let c = 0; c < C; c++) {
+  const vp = new Float32Array(F * P * 3), vc = new Float32Array(F * P * 3);
+  const centers = [];
+  frameIdx.forEach((f, fi) => {
+    const zOff = F > 1 ? (fi / (F - 1) - 0.5) * depth : 0;
+    let cx = 0, cy = 0, cz = 0;
+    for (let p = 0; p < P; p++) {
+      const s = at(f, c, p), d = (fi * P + p) * 3;
+      vp[d] = pos[s]; vp[d + 1] = pos[s + 1]; vp[d + 2] = pos[s + 2] + zOff;
+      vc[d] = col[(f * C + c) * 3]; vc[d + 1] = col[(f * C + c) * 3 + 1]; vc[d + 2] = col[(f * C + c) * 3 + 2];
+      cx += pos[s]; cy += pos[s + 1]; cz += pos[s + 2];
+    }
+    centers.push(new THREE.Vector3(cx / P, cy / P, cz / P));
+  });
+  const idx = [];
+  for (let fi = 0; fi < F - 1; fi++) {
+    if (centers[fi].distanceTo(centers[fi + 1]) > S.breakAt * span) continue; // circle teleported: leave a gap
+    for (let p = 0; p < P; p++) {
+      const a = fi * P + p, b = fi * P + (p + 1) % P, cc = a + P, d = b + P;
+      idx.push(a, cc, b, b, cc, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(vp, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(vc, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, material);
+  group.add(mesh); skins.push(mesh);
+
+  if (S.lines > 0) {
+    const li = [];
+    for (let fi = 0; fi < F; fi += S.lines) for (let p = 0; p < P; p++) li.push(fi * P + p, fi * P + (p + 1) % P);
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', g.getAttribute('position'));
+    lg.setIndex(li);
+    group.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false })));
+  }
+}
+
+// ---------- scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(S.bg);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.6));
+const key = new THREE.DirectionalLight(0xffffff, 1.8); key.position.set(1, 2, 3); scene.add(key);
+const rim = new THREE.DirectionalLight(0x88aaff, 1.0); rim.position.set(-2, -1, -3); scene.add(rim);
+
+const bs = new THREE.Box3().setFromObject(group).getBoundingSphere(new THREE.Sphere());
+group.position.sub(bs.center);
+scene.add(group);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, bs.radius * 0.01, bs.radius * 50);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.rotateSpeed = 0.7;
+controls.minDistance = bs.radius * 0.1; controls.maxDistance = bs.radius * 10;
+const fitDist = () => bs.radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect) * 0.75;
+const reset = () => { camera.position.set(bs.radius * 0.6, bs.radius * 0.3, fitDist()); controls.target.set(0, 0, 0); };
+reset();
+
+let idle = true; const t0 = performance.now();
+controls.addEventListener('start', () => { idle = false; msg.style.opacity = 0; });
+renderer.domElement.addEventListener('dblclick', reset);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+if (!msg.textContent.startsWith('demo')) msg.textContent = 'drag to rotate · pinch or scroll to zoom · double-tap to reset';
+setTimeout(() => msg.style.opacity = 0, 4000);
+if (S.kiosk) msg.style.display = 'none';
+else addBack();
+
+function addBack(){ if (q.has('p')) document.getElementById('back').style.display='block'; }
+
+renderer.setAnimationLoop(() => {
+  const t = (performance.now() - t0) / 1000;
+  const shown = S.grow > 0 ? Math.min(1, t / S.grow) : 1;
+  for (const m of skins) m.geometry.setDrawRange(0, Math.floor(m.geometry.index.count * shown / 6) * 6);
+  if (S.kiosk) group.rotation.y = t * 0.15;
+  else if (idle) group.rotation.y = Math.sin(t * 0.25) * 0.7;
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

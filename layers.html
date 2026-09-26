@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Layered Painting</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block}
+  #back{position:fixed;left:16px;top:14px;color:#bbb;font:14px system-ui,sans-serif;text-decoration:none;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);z-index:2}
+  #msg{position:fixed;left:0;right:0;bottom:18px;text-align:center;color:#999;font:13px/1.4 system-ui,sans-serif;pointer-events:none;transition:opacity .6s}
+  #bar{position:fixed;left:0;top:0;height:2px;background:#fff;width:0;transition:width .15s}
+</style>
+<script type="importmap">
+{"imports":{"three":"./lib/three.module.min.js"}}
+</script>
+</head>
+<body>
+<div id="bar"></div>
+<a id="back" href="./" style="display:none">&larr; all paintings</a>
+<div id="msg">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from './lib/OrbitControls.js';
+
+// ---------- settings (manifest.json overrides these) ----------
+const DEFAULTS = {
+  files: [],            // list of image paths inside frames/ (written by prepare.py)
+  depth: 1.2,           // total thickness of the stack, in "painting widths"
+  key: 'luminance',     // 'luminance' = dark pixels become see-through, 'alpha' = use PNG alpha, 'none'
+  threshold: 0.06,      // luminance key cutoff (0..1)
+  softness: 0.15,       // luminance key fade width
+  opacity: 0.35,        // per-layer opacity
+  blending: 'additive', // 'additive' (glowy, order-free) or 'normal' (painterly, occludes)
+  background: '#000000',
+  autoRotate: true,     // slow sway until someone touches it
+  reverse: false        // true = first frame at the back instead of the front
+};
+
+const msg = document.getElementById('msg');
+const bar = document.getElementById('bar');
+const params = new URLSearchParams(location.search);
+const BASE = params.has('p') ? `paintings/${params.get('p')}/` : 'frames/';
+const KIOSK = params.has('kiosk');
+
+let manifest = null;
+try { const r = await fetch(BASE + 'manifest.json', {cache:'no-cache'}); if (r.ok) manifest = await r.json(); } catch {}
+const S = { ...DEFAULTS, ...(manifest || {}) };
+for (const k of ['depth','threshold','softness','opacity']) if (params.has(k)) S[k] = parseFloat(params.get(k));
+for (const k of ['key','blending']) if (params.has(k)) S[k] = params.get(k);
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace; // pass pixel colors straight through
+renderer.setClearColor(S.background);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.01, 100);
+function fitDist(){ const t=Math.tan(THREE.MathUtils.degToRad(camera.fov/2)); return Math.max(0.5/(t*camera.aspect), 0.5/t)*1.15 + S.depth/2; }
+camera.position.set(0, 0, fitDist());
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 0.4;
+controls.maxDistance = 12;
+controls.rotateSpeed = 0.7;
+controls.autoRotate = false;
+let idle = S.autoRotate, t0 = performance.now();
+controls.addEventListener('start', () => { idle = false; fade(); });
+
+// ---------- layer material ----------
+const vert = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const frag = `
+  uniform sampler2D map; uniform float opacity, threshold, softness; uniform int keyMode;
+  varying vec2 vUv;
+  void main(){
+    vec4 c = texture2D(map, vUv);
+    float a = c.a;
+    if (keyMode == 1) { float l = max(c.r, max(c.g, c.b)); a *= smoothstep(threshold, threshold + softness, l); }
+    if (keyMode == 2) a = 1.0;
+    a *= opacity;
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(c.rgb, a);
+  }`;
+const keyMode = { alpha: 0, luminance: 1, none: 2 }[S.key] ?? 1;
+
+function makeLayer(tex, aspect, i, n) {
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: tex }, opacity: { value: S.opacity }, threshold: { value: S.threshold }, softness: { value: S.softness }, keyMode: { value: keyMode } },
+    vertexShader: vert, fragmentShader: frag,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: S.blending === 'normal' ? THREE.NormalBlending : THREE.AdditiveBlending
+  });
+  const w = aspect >= 1 ? 1 : aspect, h = aspect >= 1 ? 1 / aspect : 1;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  const f = n > 1 ? i / (n - 1) : 0.5;
+  mesh.position.z = (S.reverse ? f - 0.5 : 0.5 - f) * S.depth;
+  return mesh;
+}
+
+const group = new THREE.Group();
+scene.add(group);
+
+// ---------- load frames (or show a demo) ----------
+if (S.files.length) {
+  const loader = new THREE.TextureLoader();
+  let done = 0; const n = S.files.length; const layers = new Array(n);
+  await Promise.all(S.files.map((f, i) => new Promise(res => {
+    loader.load(BASE + f, tex => {
+      layers[i] = tex; done++; bar.style.width = (100 * done / n) + '%'; msg.textContent = `loading ${done}/${n}`; res();
+    }, undefined, () => { done++; res(); });
+  })));
+  const first = layers.find(Boolean);
+  const aspect = first ? first.image.width / first.image.height : 1;
+  layers.forEach((tex, i) => tex && group.add(makeLayer(tex, aspect, i, n)));
+} else {
+  // Demo: procedural rings, so you can see the effect before exporting from TouchDesigner
+  const n = 60;
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, 512, 512);
+    const t = i / n, hue = 200 + 140 * t;
+    g.strokeStyle = `hsl(${hue},90%,${55 + 10 * Math.sin(t * 12)}%)`; g.lineWidth = 3 + 4 * Math.sin(t * Math.PI);
+    g.beginPath();
+    for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.02) {
+      const r = 150 + 60 * Math.sin(a * 5 + t * 9) * Math.sin(t * Math.PI);
+      const x = 256 + r * Math.cos(a), y = 256 + r * Math.sin(a);
+      a === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.stroke();
+    group.add(makeLayer(new THREE.CanvasTexture(c), 1, i, n));
+  }
+  msg.textContent = 'demo mode: no frames/manifest.json found';
+}
+bar.style.opacity = 0;
+if (S.files.length) msg.textContent = 'drag to rotate · pinch or scroll to zoom';
+setTimeout(fade, 4000);
+if (KIOSK) msg.style.display = 'none';
+else if (params.has('p')) document.getElementById('back').style.display = 'block';
+function fade() { msg.style.opacity = 0; }
+
+// double-tap / double-click resets the view
+renderer.domElement.addEventListener('dblclick', () => { camera.position.set(0, 0, fitDist()); controls.target.set(0, 0, 0); });
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+renderer.setAnimationLoop(() => {
+  if (KIOSK) group.rotation.y = (performance.now() - t0) / 1000 * 0.15;
+  else if (idle) { const t = (performance.now() - t0) / 1000; group.rotation.y = Math.sin(t * 0.4) * 0.5; group.rotation.x = Math.sin(t * 0.27) * 0.12; }
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

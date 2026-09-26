@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sound Paintings: display</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none;font-family:system-ui,sans-serif}
+  iframe{position:fixed;inset:0;width:100%;height:100%;border:0;opacity:0;transition:opacity 1.5s}
+  iframe.on{opacity:1}
+  #qr{position:fixed;right:3vmin;bottom:3vmin;background:#fff;padding:1.4vmin;border-radius:1.2vmin;z-index:5;text-align:center}
+  #qr svg{display:block;width:17vmin;height:17vmin}
+  #qr div{color:#111;font-size:1.6vmin;margin-top:.8vmin;font-weight:500}
+  #label{position:fixed;left:3vmin;bottom:3vmin;color:#bbb;font-size:2.2vmin;z-index:5;transition:opacity 1s}
+  #label b{display:block;color:#fff;font-size:3vmin;font-weight:600}
+  #empty{position:fixed;inset:0;display:grid;place-items:center;color:#666;font-size:2.4vmin}
+</style>
+</head>
+<body>
+<div id="empty">waiting for the first painting…</div>
+<div id="label"></div>
+<div id="qr"><span id="qrcode"></span><div>scan to see every painting</div></div>
+<script type="module">
+import qrcode from './lib/qrcode.mjs';
+
+const q = new URLSearchParams(location.search);
+const POLL = parseFloat(q.get('poll') || 5) * 1000;
+let cfg = {};
+try { cfg = await (await fetch('config.json?v=' + Date.now())).json(); } catch {}
+const url = q.get('gallery') || cfg.galleryUrl || location.href.replace(/display\.html.*$/, '');
+
+const code = qrcode(0, 'M'); code.addData(url); code.make();
+document.getElementById('qrcode').innerHTML = code.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+
+let current = null, frame = null;
+const label = document.getElementById('label');
+
+async function check() {
+  let list = [];
+  try { list = await (await fetch('paintings/index.json?v=' + Date.now())).json(); } catch { return; }
+  if (!list.length) return;
+  list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const p = list[0];
+  if (p.id === current) return;
+  current = p.id;
+  document.getElementById('empty').style.display = 'none';
+  const next = document.createElement('iframe');
+  next.src = (p.kind === 'layers' ? 'layers.html' : 'view.html') + '?kiosk&p=' + encodeURIComponent(p.id);
+  next.onload = () => setTimeout(() => {
+    next.classList.add('on');
+    const old = frame; frame = next;
+    if (old) { old.classList.remove('on'); setTimeout(() => old.remove(), 1600); }
+  }, 400);
+  document.body.appendChild(next);
+  label.innerHTML = `<b></b><span></span>`;
+  label.querySelector('b').textContent = p.title || `No. ${list.length}`;
+  label.querySelector('span').textContent = cfg.title || '';
+}
+check(); setInterval(check, POLL);
+
+// press F for fullscreen (or launch the browser in kiosk mode)
+addEventListener('keydown', e => { if (e.key === 'f') document.documentElement.requestFullscreen?.(); });
+</script>
+</body>
+</html>
