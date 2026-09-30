@@ -1,49 +1,50 @@
-# Sound Paintings website
+# Makers Marks website
 
-- index.html    gallery, where the QR code leads (phones)
-- view.html     3D viewer for skin paintings    (view.html?p=<id>)
-- layers.html   3D viewer for image-stack paintings (layers.html?p=<id>)
-- display.html  full-screen page for the gallery monitor: newest painting + QR code, switches by itself
-- config.json   title, subtitle, and the gallery web address the QR points to
+- index.html    the gallery. On phones: pages of live 3D previews. On the installation monitor it also shows
+                the QR code and the status / "Name your painting!" block (it talks to TouchDesigner).
+- view.html     full viewer for skin paintings    (view.html?p=<id>)
+- layers.html   full viewer for layer paintings   (layers.html?p=<id>)
+- config.json   title, subtitle, galleryUrl (where the QR points), stationUrl (TouchDesigner web server)
 - paintings/    one folder per painting + index.json (the list)
+- td/station/   TouchDesigner: gallery status + naming + upload, and the web server for the monitor
 - td/layers/    TouchDesigner: record a TOP as stacked layers
 - td/skin/      TouchDesigner: record deformed circle geometry as a skin
-- tools/        image-stack publisher from exported files + printable QR
+- tools/        publish already-exported frames + printable QR
 
-## One-time setup
-1. github.com -> New repository -> name it makers-marks (Public).
-2. Install GitHub Desktop, sign in, "Add existing repository" (or clone the new one) and copy
-   everything from this zip into it. Commit + Push.
-   GitHub Desktop also sets up git + your login so TouchDesigner can push.
-3. On github.com: repo -> Settings -> Pages -> Source: Deploy from a branch -> main, / (root) -> Save.
-   Your address: https://YOUR-NAME.github.io/makers-marks/
-4. Put that address in config.json ("galleryUrl"), commit + push.
+## One-time GitHub setup
+1. Repo makers-marks (Public), cloned with GitHub Desktop, these files copied in, Commit + Push.
+2. Settings -> Pages -> Deploy from a branch -> main, / (root).
+3. config.json: "galleryUrl": "https://YOUR-NAME.github.io/makers-marks/"
+4. Command-line git must be installed and signed in (Git for Windows, then one `git push` in a terminal).
 
-## In TouchDesigner (two script sets: use whichever patch is live)
-Both need REPO set to your local repo folder, e.g. 'C:/Users/you/Documents/GitHub/makers-marks'.
+## TouchDesigner (put every DAT in the same network, e.g. /project1)
+Always:
+1. Text DAT named 'gallery'  <- td/station/td_gallery.py. Set REPO (keep the r in front of the quote).
+2. Web Server DAT, Port 9980, Active on. Paste td/station/td_webserver.py into its callbacks DAT.
 
-### A. Layers: records your painting TOP  (td/layers/td_layers.py)
-1. Execute DAT named 'layers', paste td_layers.py, turn on Frame End.
-2. SRC_TOP = the TOP to record. Put a Fit TOP (1024 on the long side) after your painting so saving stays fast.
-3. op('layers').module.start()   ...perform...   op('layers').module.finish('optional title')
-   It keeps ~80 evenly spaced frames, saves them + a thumbnail into paintings/, updates the list and pushes.
-   cancel() throws a take away, push() retries an upload.
+Then whichever patch is live:
+- Layers: Execute DAT named 'layers' <- td/layers/td_layers.py, Frame End on. SRC_TOP = a Fit TOP (512) after your painting.
+  Button: op('/project1/layers').module.toggle()
+- Skin: Execute DAT 'execute1' <- td/skin/td_skin_recorder.py (Frame End on), Constant CHOP 'rec' (channel 'record'),
+  Text DAT 'publish' <- td/skin/td_publish.py.
+  Button: op('/project1/publish').module.toggle()
 
-### B. Sound Skin: records the audio-deformed circle geometry  (td/skin/)
-1. Execute DAT named 'execute1' with td_skin_recorder.py (Frame End on). Set SOP, INSTANCE, and COLOR (a CHOP with r g b, or everything is white).
-2. Constant CHOP named 'rec', channel 'record'.
-3. Text DAT named 'publish' with td_publish.py. Set THUMB_TOP to a Fit TOP (600x600) after your feedback painting.
-4. op('publish').module.start()   ...perform...   op('publish').module.finish('optional title')
+MIDI button (CHOP Execute DAT on your Select CHOP, Off to On only):
+    import time
+    _last = [0.0]
+    def onOffToOn(channel, sampleIndex, val, prev):
+        if time.time() - _last[0] < 0.5: return
+        _last[0] = time.time()
+        op('/project1/layers').module.toggle()      # or /project1/publish for the skin set
 
-Either way the site updates about a minute later. If the wifi is down, the painting is still saved
-locally; run push() later to upload it. Both kinds show up in the same gallery.
+What happens: press -> recording -> press -> shaping -> the monitor asks "Name your painting!" ->
+name + Enter (or 60 s passes and it goes up untitled) -> uploading -> in the gallery.
+Fix a name later:        op('/project1/gallery').module.rename('<painting id>', 'New name')
+Take one off the site:   op('/project1/gallery').module.hide('<painting id>')
+Retry a failed upload:   op('/project1/gallery').module.push()
 
 ## The monitor
 In a terminal in the repo folder:  python -m http.server 8000
-Open http://localhost:8000/display.html in Chrome and press F for full screen
-(or start Chrome with --kiosk http://localhost:8000/display.html).
-It reads the paintings on this computer, so it updates instantly and works offline.
-
-## Image-stack paintings (optional)
-python tools/prepare_layers.py path/to/frames --title "..." --push      (pip install pillow)
-Printable QR:  python tools/prepare_layers.py --qr https://YOUR-NAME.github.io/makers-marks/
+Open http://localhost:8000/ in Chrome, full screen (F11) or: chrome --kiosk http://localhost:8000/
+Needs a keyboard for naming. Arrow keys / buttons flip pages; it flips on its own when nobody's using it.
+Clicking a painting opens it; the monitor comes back to the gallery after 90 s, or as soon as a new recording starts.

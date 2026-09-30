@@ -171,5 +171,23 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 </script>
+<script>
+// monitor helpers: go back to the gallery after inactivity (?return=seconds),
+// and jump back when a new painting starts or needs a name (?station=<TouchDesigner url>)
+(() => {
+  const q = new URLSearchParams(location.search);
+  const back = () => { location.href = './'; };
+  const ret = parseFloat(q.get('return') || 0);
+  if (ret > 0) {
+    let t = Date.now();
+    ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'].forEach(e => addEventListener(e, () => { t = Date.now(); }, { passive: true }));
+    setInterval(() => { if (Date.now() - t > ret * 1000) back(); }, 1000);
+  }
+  const st = q.get('station');
+  if (st) setInterval(async () => {
+    try { const s = await (await fetch(st + '/api/status', { cache: 'no-store' })).json(); if (s.state === 'recording' || s.state === 'naming') back(); } catch {}
+  }, 2000);
+})();
+</script>
 </body>
 </html>

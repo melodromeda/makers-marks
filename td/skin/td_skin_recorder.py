@@ -17,7 +17,7 @@
 #
 # When finished, in the Textport:
 #     op('execute1').module.save()      # writes skin.json + skin.bin next to your .toe
-#   (or let td_publish.py do record -> save -> upload for you)
+#   (normally td_publish.py does record -> save -> name -> upload for you)
 #     op('execute1').module.clear()     # start over
 # ----------------------------------------
 
@@ -72,7 +72,14 @@ def _color(chop, i):
     j = min(i, chop.numSamples - 1)
     return [chop[c][j] if chop.chan(c) is not None else 1.0 for c in ('r', 'g', 'b')]
 
+GALLERY  = 'gallery'   # Text DAT with td_gallery.py (status + naming)
+
 def onFrameEnd(frame):
+    g = op(GALLERY)
+    if g is not None:
+        g.module.tick()
+        if g.module.status['state'] == 'recording':
+            g.module.status['frames'] = len(_frames)
     rec = op(REC)
     if rec is None or rec['record'] is None or rec['record'].eval() < 0.5:
         return
