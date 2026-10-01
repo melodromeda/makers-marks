@@ -82,5 +82,12 @@
   "date": "2026-10-01T18:48:28",
   "title": "test!",
   "thumb": "thumb.jpg"
+ },
+ {
+  "id": "2026-10-01_185629",
+  "kind": "layers",
+  "date": "2026-10-01T18:56:32",
+  "title": "",
+  "thumb": "thumb.jpg"
  }
 ]
