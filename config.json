@@ -1,8 +1,7 @@
 {
   "title": "Makers Marks",
-  "subtitle": "Audio-reactive circles, recorded in 3D. Tap one to turn it in your hand.",
-  "galleryUrl": "https://YOUR-GITHUB-NAME.github.io/makers-marks/",
+  "galleryUrl": "https://melodromeda.github.io/makers-marks/",  
   "stationUrl": "http://localhost:9980",
-  "idleHead": "Make your mark",
-  "idleText": "Press the button to start a painting. Press it again to finish."
+  "idleHead": "Make a painting...!",
+  "idleText": "Press B1 to start a painting. Press it again to finish."
 }

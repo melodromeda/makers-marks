@@ -78,10 +78,10 @@
 <div id="layout">
   <main id="grid"></main>
   <aside id="side">
-    <div id="qr"><div class="code" id="qrcode"></div><p><b>Take it with you</b>Scan to turn every painting in your hand.</p></div>
+    <div id="qr"><div class="code" id="qrcode"></div><p><-- scan for mobile view</p></div>
     <section id="status" data-s="idle" aria-live="polite">
       <div class="state"><i></i><span id="stLabel">ready</span></div>
-      <h2 id="stHead">Make your mark</h2>
+      <h2 id="stHead">Name your thing!</h2>
       <div class="msg" id="stMsg"></div>
       <div id="newView"></div>
       <form id="nameForm" autocomplete="off">
@@ -265,10 +265,10 @@ async function initStation() {
   let last = null, reachable = false, newId = null, submitted = false;
 
   const TEXT = {
-    idle:      ['ready',     cfg.idleHead || 'Make your mark', cfg.idleText || 'Press the button to start a painting. Press it again to finish.'],
-    recording: ['recording', 'Painting…', ''],
-    shaping:   ['shaping',   'Shaping your painting…', 'Stacking the frames into 3D.'],
-    naming:    ['name it',   'Name your painting!', 'Type a name and press Enter.'],
+    idle:      ['ready',     cfg.idleHead || 'press B1 to record!', cfg.idleText || 'Press B1 to start a painting. Press it again to finish.'],
+    recording: ['recording', 'recording…', ''],
+    shaping:   ['shaping',   'processing...'],
+    naming:    ['name it',   'Name your creation!', 'Type a name and press Enter.'],
     uploading: ['uploading', 'Uploading…', ''],
     done:      ['done',      'In the gallery', 'It will show up on phones in about a minute.'],
     failed:    ['saved',     'Saved on this computer', 'The upload will be retried.'],
