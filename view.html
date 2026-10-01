@@ -3,12 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Sound Skin</title>
+<title>Makers' Marks</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
   canvas{display:block}
-  #back{position:fixed;left:16px;top:14px;color:#bbb;font:14px system-ui,sans-serif;text-decoration:none;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);z-index:2}
-  #msg{position:fixed;left:0;right:0;bottom:18px;text-align:center;color:#999;font:13px/1.4 system-ui,sans-serif;pointer-events:none;transition:opacity .6s}
+  @font-face{font-family:'Geist Pixel';src:url(lib/fonts/GeistPixel-Square.woff2) format('woff2');font-display:block}
+  @font-face{font-family:'Geist Mono';src:url(lib/fonts/GeistMono-Regular.woff2) format('woff2');font-display:block}
+  #back{position:fixed;left:16px;top:14px;color:#aa748c;font:15px 'Geist Pixel',ui-monospace,monospace;text-shadow:.06em 0 0 currentColor;letter-spacing:.07em;text-decoration:none;padding:8px 12px;background:#1b1b1e;box-shadow:5px 5px 0 #050506;z-index:2}
+  @media (hover:hover){ #back:hover{outline:2px solid #a0a0a6} }
+  #back:active{transform:translate(5px,5px);box-shadow:none}
+  #msg{position:fixed;left:0;right:0;bottom:18px;text-align:center;color:#999;font:12px/1.4 'Geist Mono',ui-monospace,monospace;pointer-events:none;transition:opacity .6s}
 </style>
 <script type="importmap">
 {"imports":{"three":"./lib/three.module.min.js"}}
@@ -16,10 +20,11 @@
 </head>
 <body>
 <a id="back" href="./" style="display:none">&larr; all paintings</a>
-<div id="msg">loading…</div>
+<div id="msg">loading...</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from './lib/OrbitControls.js';
+import { autoQuality } from './lib/perf.js';
 
 // ---------- settings: override in the URL, e.g. skin.html?look=glow&lines=4 ----------
 const q = new URLSearchParams(location.search);
@@ -128,8 +133,8 @@ for (let c = 0; c < C; c++) {
 }
 
 // ---------- scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const quality = autoQuality(renderer);
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(S.bg);
 document.body.appendChild(renderer.domElement);
@@ -161,7 +166,8 @@ else addBack();
 
 function addBack(){ if (q.has('p')) document.getElementById('back').style.display='block'; }
 
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop(now => {
+  quality(now);
   const t = (performance.now() - t0) / 1000;
   const shown = S.grow > 0 ? Math.min(1, t / S.grow) : 1;
   for (const m of skins) m.geometry.setDrawRange(0, Math.floor(m.geometry.index.count * shown / 6) * 6);

@@ -1,7 +1,8 @@
 {
-  "title": "Makers Marks",
-  "galleryUrl": "https://melodromeda.github.io/makers-marks/",  
+  "title": "Makers' Marks",
+  "galleryUrl": "https://melodromeda.github.io/makers-marks/",
   "stationUrl": "http://localhost:9980",
   "idleHead": "Make a painting...!",
-  "idleText": "Press B1 to start a painting. Press it again to finish."
+  "idleText": "Press B1 to start a painting. Press it again to finish.",
+  "hover": "outline"
 }

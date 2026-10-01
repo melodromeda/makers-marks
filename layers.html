@@ -3,12 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Layered Painting</title>
+<title>Makers' Marks</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
   canvas{display:block}
-  #back{position:fixed;left:16px;top:14px;color:#bbb;font:14px system-ui,sans-serif;text-decoration:none;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);z-index:2}
-  #msg{position:fixed;left:0;right:0;bottom:18px;text-align:center;color:#999;font:13px/1.4 system-ui,sans-serif;pointer-events:none;transition:opacity .6s}
+  @font-face{font-family:'Geist Pixel';src:url(lib/fonts/GeistPixel-Square.woff2) format('woff2');font-display:block}
+  @font-face{font-family:'Geist Mono';src:url(lib/fonts/GeistMono-Regular.woff2) format('woff2');font-display:block}
+  #back{position:fixed;left:16px;top:14px;color:#aa748c;font:15px 'Geist Pixel',ui-monospace,monospace;text-shadow:.06em 0 0 currentColor;letter-spacing:.07em;text-decoration:none;padding:8px 12px;background:#1b1b1e;box-shadow:5px 5px 0 #050506;z-index:2}
+  @media (hover:hover){ #back:hover{outline:2px solid #a0a0a6} }
+  #back:active{transform:translate(5px,5px);box-shadow:none}
+  #msg{position:fixed;left:0;right:0;bottom:18px;text-align:center;color:#999;font:12px/1.4 'Geist Mono',ui-monospace,monospace;pointer-events:none;transition:opacity .6s}
   #bar{position:fixed;left:0;top:0;height:2px;background:#fff;width:0;transition:width .15s}
 </style>
 <script type="importmap">
@@ -18,10 +22,11 @@
 <body>
 <div id="bar"></div>
 <a id="back" href="./" style="display:none">&larr; all paintings</a>
-<div id="msg">loading…</div>
+<div id="msg">loading...</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from './lib/OrbitControls.js';
+import { autoQuality } from './lib/perf.js';
 
 // ---------- settings (manifest.json overrides these) ----------
 const DEFAULTS = {
@@ -50,8 +55,7 @@ for (const k of ['depth','threshold','softness','opacity']) if (params.has(k)) S
 for (const k of ['key','blending']) if (params.has(k)) S[k] = params.get(k);
 
 // ---------- renderer / scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace; // pass pixel colors straight through
 renderer.setClearColor(S.background);
@@ -154,7 +158,20 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-renderer.setAnimationLoop(() => {
+let thin = 1;
+function thinLayers() {
+  const meshes = group.children;
+  if (meshes.length / (thin * 2) < 24) return;          // never go below ~24 layers
+  thin *= 2;
+  meshes.forEach((m, i) => {
+    m.visible = i % thin === 0;
+    m.material.uniforms.opacity.value = 1 - Math.pow(1 - S.opacity, thin);
+  });
+}
+const quality = autoQuality(renderer, { onStruggle: thinLayers, info: () => `${Math.ceil(group.children.length / thin)} layers` });
+
+renderer.setAnimationLoop(now => {
+  quality(now);
   if (KIOSK) group.rotation.y = (performance.now() - t0) / 1000 * 0.15;
   else if (idle) { const t = (performance.now() - t0) / 1000; group.rotation.y = Math.sin(t * 0.4) * 0.5; group.rotation.x = Math.sin(t * 0.27) * 0.12; }
   controls.update();
