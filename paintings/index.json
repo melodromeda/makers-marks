@@ -61,5 +61,12 @@
   "date": "2026-10-01T12:30:24",
   "title": "beeh",
   "thumb": "thumb.jpg"
+ },
+ {
+  "id": "2026-10-01_123204",
+  "kind": "layers",
+  "date": "2026-10-01T12:32:05",
+  "title": "hello",
+  "thumb": "thumb.jpg"
  }
 ]
