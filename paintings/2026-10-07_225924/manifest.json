@@ -1,0 +1,23 @@
+{
+  "files": [
+    "layer_0000.jpg",
+    "layer_0001.jpg",
+    "layer_0002.jpg",
+    "layer_0003.jpg",
+    "layer_0004.jpg",
+    "layer_0005.jpg",
+    "layer_0006.jpg",
+    "layer_0007.jpg",
+    "layer_0008.jpg",
+    "layer_0009.jpg",
+    "layer_0010.jpg",
+    "layer_0011.jpg",
+    "layer_0012.jpg",
+    "layer_0013.jpg"
+  ],
+  "depth": 0.5,
+  "key": "luminance",
+  "blending": "normal",
+  "opacity": 0.5,
+  "reverse": false
+}
